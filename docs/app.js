@@ -8,11 +8,13 @@ import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc,
   deleteDoc, onSnapshot, query, orderBy, limit, writeBatch, serverTimestamp, increment,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js";
-import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js";
-import { comprimiFoto, immagineSicura } from "./foto.js";
+import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js?v=7";
+import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js?v=7";
+import { comprimiFoto, immagineSicura } from "./foto.js?v=7";
 
 // Il nickname diventa un indirizzo email interno: Firebase richiede un'email, ma nessuna email viene mai inviata.
+// Aumentare a ogni modifica (anche in index.html): costringe i browser a scaricare i file nuovi.
+const VERSIONE = "7";
 const DOMINIO_NICK = "staff.schede-colore.app";
 const SERVIZI = ["Colore", "Ritocco radici", "Mèches", "Colpi di sole", "Balayage", "Tonalizzante / Gloss",
   "Decolorazione", "Trattamento", "Permanente", "Lisciante"];
@@ -861,6 +863,7 @@ function paginaImpostazioni() {
     sezioneBackup(),
     sezioneControllo(),
     sezionePassword(),
+    h("p", { class: "tenue versione" }, `Versione ${VERSIONE}`),
   );
 }
 

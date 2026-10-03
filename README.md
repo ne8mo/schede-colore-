@@ -183,5 +183,6 @@ npm run locale    # emulatori: apri http://127.0.0.1:5050/?emulatori=1
 ```
 
 Con `?emulatori=1` su localhost l'app usa gli emulatori locali invece del progetto vero.
+A ogni modifica aumenta `VERSIONE` in `docs/app.js` e i `?v=` in `docs/index.html` e negli import: così i browser scaricano i file nuovi.
 L'app sta nella cartella `docs/`: GitHub Pages la pubblica da lì (ramo `main`, cartella `/docs`) a ogni modifica.
 Le regole di Firestore invece vanno ripubblicate a mano (passo 6) o con `firebase deploy --only firestore:rules`.

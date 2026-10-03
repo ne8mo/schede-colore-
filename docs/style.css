@@ -303,3 +303,5 @@ body.visore-aperto { overflow: hidden; }
     .barra nav a { padding: 6px 9px; }
     .bottone { padding: 10px 18px; }
 }
+
+.versione { text-align: center; font-size: .8rem; margin-top: 24px; }
