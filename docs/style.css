@@ -305,3 +305,5 @@ body.visore-aperto { overflow: hidden; }
 }
 
 .versione { text-align: center; font-size: .8rem; margin-top: 24px; }
+.errore-avvio { margin-top: 16px; }
+.errore-avvio pre { white-space: pre-wrap; word-break: break-word; background: var(--rosso-chiaro); color: var(--rosso); padding: 10px 12px; border-radius: 10px; font-size: .78rem; }

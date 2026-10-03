@@ -8,13 +8,13 @@ import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc,
   deleteDoc, onSnapshot, query, orderBy, limit, writeBatch, serverTimestamp, increment,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
-import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js?v=7";
-import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js?v=7";
-import { comprimiFoto, immagineSicura } from "./foto.js?v=7";
+import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js?v=8";
+import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js?v=8";
+import { comprimiFoto, immagineSicura } from "./foto.js?v=8";
 
 // Il nickname diventa un indirizzo email interno: Firebase richiede un'email, ma nessuna email viene mai inviata.
 // Aumentare a ogni modifica (anche in index.html): costringe i browser a scaricare i file nuovi.
-const VERSIONE = "7";
+const VERSIONE = "8";
 const DOMINIO_NICK = "staff.schede-colore.app";
 const SERVIZI = ["Colore", "Ritocco radici", "Mèches", "Colpi di sole", "Balayage", "Tonalizzante / Gloss",
   "Decolorazione", "Trattamento", "Permanente", "Lisciante"];
@@ -134,6 +134,7 @@ function emailDaNick(nick) {
 
 function erroreLeggibile(e) {
   const codice = e?.code || "";
+  window.__errori?.push(`${codice || "errore"}: ${e?.message || e}`);
   if (["auth/invalid-credential", "auth/wrong-password", "auth/user-not-found", "auth/invalid-email"].includes(codice))
     return "Nickname o password non corretti.";
   if (codice === "auth/too-many-requests") return "Troppi tentativi. Riprova tra qualche minuto.";

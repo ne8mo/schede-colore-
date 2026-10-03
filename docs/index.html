@@ -10,8 +10,34 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=7">
-    <script type="module" src="app.js?v=7"></script>
+    <link rel="stylesheet" href="style.css?v=8">
+    <script>
+        // Se l'app non parte, dopo qualche secondo mostra il motivo invece di «Caricamento…»
+        window.__errori = [];
+        window.addEventListener("error", function (e) {
+            var dove = e.filename || (e.target && (e.target.src || e.target.href)) || "";
+            window.__errori.push((e.message || "file non caricato") + (dove ? " (" + dove.split("/").pop() + ")" : ""));
+        }, true);
+        window.addEventListener("unhandledrejection", function (e) {
+            var r = e.reason || {};
+            window.__errori.push((r.code ? r.code + ": " : "") + (r.message || String(r)));
+        });
+        setTimeout(function () {
+            var app = document.getElementById("app");
+            var fermo = app && Array.prototype.some.call(app.querySelectorAll("p"), function (p) { return p.textContent === "Caricamento…"; });
+            if (!fermo) return;
+            var box = document.createElement("div");
+            box.className = "pannello stretto errore-avvio";
+            box.innerHTML = "<h2>L'app non riesce a partire</h2>"
+                + "<p>Manda una foto di questa schermata a chi ti ha preparato l'app.</p>"
+                + "<pre></pre><p><button class='bottone' onclick='location.reload()'>Riprova</button></p>";
+            box.querySelector("pre").textContent = (window.__errori.length ? window.__errori.join("\n") : "Nessun errore registrato: la connessione a Firebase non risponde.")
+                + "\n\nVersione 8 · " + navigator.userAgent;
+            var main = app.querySelector("main") || app;
+            main.appendChild(box);
+        }, 12000);
+    </script>
+    <script type="module" src="app.js?v=8"></script>
 </head>
 <body>
     <div id="app"><main class="centro"><p class="tenue">Caricamento…</p></main></div>
