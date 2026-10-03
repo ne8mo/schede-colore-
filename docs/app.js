@@ -164,7 +164,7 @@ function rotta() {
 function schermataNonConfigurata() {
   radice.replaceChildren(h("main", { class: "centro" }, h("div", { class: "pannello stretto" },
     h("h1", {}, "Manca la configurazione"),
-    h("p", {}, "Apri il file ", h("code", {}, "public/firebase-config.js"),
+    h("p", {}, "Apri il file ", h("code", {}, "docs/firebase-config.js"),
       " e incolla la configurazione del tuo progetto Firebase, come spiegato nella guida (README)."),
   )));
 }

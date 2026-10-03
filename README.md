@@ -21,7 +21,7 @@ leggerli e modificarli **solo** con quell'accesso.
   Non si aggira modificando la pagina.
 - **Nessuno può creare altri accessi dall'esterno**, perché la registrazione è chiusa nella console di Firebase (passo 5).
 - **Uscita automatica** dopo 20 minuti senza usare l'app, o chiudendo il browser.
-  I minuti si cambiano in `public/firebase-config.js`.
+  I minuti si cambiano in `docs/firebase-config.js`.
 - **Il sito non compare su Google** (`noindex`).
 - **Se una dipendente lascia il salone**, cambia la password (*Impostazioni → Password del salone*) e
   comunicala di persona alle altre.
@@ -47,7 +47,7 @@ altro account, anche con nomi simili, non possano leggere né scrivere nulla.
 
 ### 4. Collega l'app
 **Impostazioni progetto → Le tue app → `</>`**, registra l'app e copia i valori di `firebaseConfig`
-in [`public/firebase-config.js`](public/firebase-config.js). *(Già fatto per `gestionale-schede-tecniche`.)*
+in [`docs/firebase-config.js`](docs/firebase-config.js). *(Già fatto per `gestionale-schede-tecniche`.)*
 
 ### 5. Crea l'accesso del salone e chiudi la registrazione
 1. **Authentication → Utenti → Aggiungi utente**:
@@ -61,10 +61,10 @@ Apri [`firestore.rules`](firestore.rules) su GitHub, copia tutto il testo, poi i
 cancella quello che c'è, incolla e premi **Pubblica**.
 
 ### 7. Pubblica l'app con GitHub Pages
-1. Nel repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. Scheda **Actions → «Pubblica su GitHub Pages» → Run workflow** (solo la prima volta: dopo si aggiorna da sola
-   a ogni modifica del repository).
-3. In Firebase: **Authentication → Impostazioni → Domini autorizzati → Aggiungi dominio** → `ne8mo.github.io`.
+1. Nel repository su GitHub: **Settings → Pages → Build and deployment**.
+2. **Source: Deploy from a branch**, poi **Branch: `main`** e cartella **`/docs`** → **Save**.
+3. Dopo un paio di minuti l'app è online. Si aggiorna da sola a ogni modifica del repository.
+4. In Firebase: **Authentication → Impostazioni → Domini autorizzati → Aggiungi dominio** → `ne8mo.github.io`.
 
 ### 8. Entra
 Apri **https://ne8mo.github.io/schede-colore-/**, entra con `futuresun` e la password, poi in
@@ -183,5 +183,5 @@ npm run locale    # emulatori: apri http://127.0.0.1:5050/?emulatori=1
 ```
 
 Con `?emulatori=1` su localhost l'app usa gli emulatori locali invece del progetto vero.
-Ogni modifica al ramo `main` viene pubblicata da sola su GitHub Pages (`.github/workflows/pages.yml`).
+L'app sta nella cartella `docs/`: GitHub Pages la pubblica da lì (ramo `main`, cartella `/docs`) a ogni modifica.
 Le regole di Firestore invece vanno ripubblicate a mano (passo 6) o con `firebase deploy --only firestore:rules`.
