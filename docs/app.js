@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment,
+  deleteDoc, onSnapshot, query, orderBy, limit, writeBatch, serverTimestamp, increment,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js";
 import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js";
@@ -18,6 +18,8 @@ const SERVIZI = ["Colore", "Ritocco radici", "Mèches", "Colpi di sole", "Balaya
   "Decolorazione", "Trattamento", "Permanente", "Lisciante"];
 const OSSIGENI = ["5 vol", "10 vol", "20 vol", "30 vol", "40 vol"];
 const GIORNI_PROMEMORIA_BACKUP = 7;
+const REGOLE_VECCHIE = "Firebase non permette le foto: le regole di sicurezza non sono aggiornate. "
+  + "Vai in Impostazioni → Controllo permessi.";
 
 const usaEmulatori = ["localhost", "127.0.0.1"].includes(location.hostname)
   && new URLSearchParams(location.search).has("emulatori");
@@ -468,7 +470,7 @@ function ascoltaSchede(clienteId) {
       aggiornaVisore();
       ridisegna();
     },
-    (e) => avvisa(erroreLeggibile(e), "errore"),
+    (e) => avvisa(e?.code === "permission-denied" ? REGOLE_VECCHIE : erroreLeggibile(e), "errore"),
   );
   stato.ascoltoSchede = { clienteId, stop: () => { fermaSchede(); fermaFoto(); } };
 }
@@ -673,7 +675,8 @@ function caricaFotoBottone(c) {
         await batch.commit();
         caricate++;
       } catch (e) {
-        avvisa(e.message?.startsWith("«") || e.message?.startsWith("Non riesco") ? e.message : erroreLeggibile(e), "errore");
+        avvisa(e?.code === "permission-denied" ? REGOLE_VECCHIE
+          : e.message?.startsWith("«") || e.message?.startsWith("Non riesco") ? e.message : erroreLeggibile(e), "errore");
         return;
       }
     }
@@ -854,6 +857,7 @@ function paginaImpostazioni() {
     h("h1", {}, "Impostazioni"),
     sezioneParrucchiere(),
     sezioneBackup(),
+    sezioneControllo(),
     sezionePassword(),
   );
 }
@@ -901,6 +905,52 @@ function sezioneParrucchiere() {
         }
       },
     }, nome, h("button", { class: "bottone", type: "submit" }, "Aggiungi")),
+  );
+}
+
+// Prova cosa permettono davvero le regole di Firestore pubblicate, per capire subito cosa non va.
+function sezioneControllo() {
+  const esito = h("ul", { class: "righe controllo" });
+  const bottone = h("button", { class: "bottone chiaro", type: "button" }, "Controlla permessi");
+  const prove = [
+    ["Accesso e lettura clienti", () => getDocs(query(collection(db, "clienti"), limit(1)))],
+    ["Lettura delle foto", () => getDocs(query(collection(db, "clienti", "_controllo", "foto"), limit(1)))],
+    ["Salvataggio di una foto", async () => {
+      const prova = doc(db, "clienti", "_controllo", "foto", "prova");
+      await setDoc(prova, { immagine: "data:image/jpeg;base64,", larghezza: 1, altezza: 1, nota: "", dataScheda: "" });
+      await deleteDoc(prova);
+    }],
+    ["Data dell'ultimo backup", () => getDoc(doc(db, "config", "backup"))],
+  ];
+  bottone.addEventListener("click", async () => {
+    bottone.disabled = true;
+    esito.replaceChildren();
+    let tuttoOk = true;
+    for (const [nome, prova] of prove) {
+      let riga;
+      try {
+        await prova();
+        riga = h("li", {}, h("span", {}, nome), h("strong", { class: "verde" }, "✓ ok"));
+      } catch (e) {
+        tuttoOk = false;
+        riga = h("li", {}, h("span", {}, nome),
+          h("strong", { class: "rosso" }, e?.code === "permission-denied" ? "✗ non permesso" : `✗ ${e?.code || "errore"}`));
+      }
+      esito.append(riga);
+    }
+    esito.append(h("li", { class: "consiglio" }, tuttoOk
+      ? "Tutto a posto: Firebase è configurato correttamente."
+      : ["Le regole pubblicate in Firebase non sono quelle giuste. Copia il testo da ",
+        h("a", { href: "https://raw.githubusercontent.com/ne8mo/schede-colore-/main/firestore.rules", target: "_blank", rel: "noopener" }, "questo link"),
+        " e incollalo in Firebase → Firestore Database → Regole, sostituendo tutto, poi premi Pubblica. "
+        + `Accesso attuale: ${stato.utente?.email || "?"}.`]));
+    bottone.disabled = false;
+  });
+  return h("section", { class: "pannello" },
+    h("h2", {}, "Controllo permessi"),
+    h("p", { class: "tenue" }, "Se qualcosa dà «non hai il permesso», premi qui: l'app prova ogni operazione e ti dice cosa blocca Firebase."),
+    h("div", { class: "azioni" }, bottone),
+    esito,
   );
 }
 

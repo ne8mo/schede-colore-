@@ -215,6 +215,9 @@ textarea { resize: vertical; min-height: 80px; }
 /* backup */
 .promemoria { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #fbf1e4; border: 1px solid #f0dcc0; border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; }
 .rosso { color: var(--rosso); font-weight: 600; }
+.verde { color: #4f6249; font-weight: 600; }
+.controllo { margin-top: 12px; }
+.controllo .consiglio { display: block; border-bottom: none; color: var(--espresso); line-height: 1.5; }
 .nascosto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 #backup { scroll-margin-top: 80px; }
 
