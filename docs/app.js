@@ -125,7 +125,9 @@ function normalizzaNick(nick) {
 }
 
 function emailDaNick(nick) {
-  return `${normalizzaNick(nick)}@${DOMINIO_NICK}`;
+  // si può scrivere il nickname (futuresun) oppure l'email completa usata in Firebase
+  const n = normalizzaNick(nick);
+  return n.includes("@") ? n : `${n}@${DOMINIO_NICK}`;
 }
 
 function erroreLeggibile(e) {
@@ -195,7 +197,7 @@ function schermataLogin() {
     h("div", { class: "marchio" }, nomeSalone),
     h("h1", {}, "Schede colore"),
     h("p", { class: "tenue" }, "Area riservata al personale."),
-    campo("Nickname", nick),
+    campo("Nickname", nick, "Es. futuresun"),
     campo("Password", pw),
     errore, bottone,
   );
