@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// Schede colore – regole di sicurezza.
+// Nessuno può leggere o scrivere nulla se non è un membro dello staff attivo,
+// cioè se non esiste il documento staff/{suo uid} con attivo == true.
+// Creare un account da solo non basta: senza quel documento non si vede niente.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function loggato() {
+      return request.auth != null;
+    }
+    function staff() {
+      return get(/databases/$(database)/documents/staff/$(request.auth.uid)).data;
+    }
+    function isStaff() {
+      return loggato()
+        && exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+        && staff().attivo == true;
+    }
+    function isAdmin() {
+      return isStaff() && staff().ruolo == 'admin';
+    }
+    function testo(campo, max) {
+      return !(campo in request.resource.data)
+        || request.resource.data[campo] == null
+        || (request.resource.data[campo] is string && request.resource.data[campo].size() <= max);
+    }
+
+    // Serve solo a sapere se il primo amministratore è già stato creato.
+    match /config/setup {
+      allow get: if true;
+      allow create: if loggato()
+        && !exists(/databases/$(database)/documents/config/setup)
+        && getAfter(/databases/$(database)/documents/staff/$(request.auth.uid)).data.ruolo == 'admin'
+        && request.resource.data.keys().hasOnly(['fatto', 'quando']);
+      allow update, delete: if false;
+    }
+
+    // Accessi. Il primo amministratore si crea da solo, una volta sola.
+    match /staff/{uid} {
+      allow read: if isStaff() || (loggato() && request.auth.uid == uid);
+      allow create: if isAdmin()
+        || (loggato() && request.auth.uid == uid
+            && !exists(/databases/$(database)/documents/config/setup)
+            && existsAfter(/databases/$(database)/documents/config/setup)
+            && request.resource.data.ruolo == 'admin'
+            && request.resource.data.attivo == true);
+      // un admin non può togliersi i permessi da solo (per non chiudersi fuori)
+      allow update: if isAdmin()
+        && (uid != request.auth.uid
+            || (request.resource.data.ruolo == 'admin' && request.resource.data.attivo == true));
+      allow delete: if isAdmin() && uid != request.auth.uid;
+    }
+
+    match /parrucchiere/{id} {
+      allow read: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() > 0
+        && request.resource.data.nome.size() <= 60;
+      allow delete: if isAdmin();
+    }
+
+    match /clienti/{clienteId} {
+      allow read: if isStaff();
+      allow create, update: if isStaff()
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() > 0
+        && testo('nome', 80) && testo('cognome', 80) && testo('telefono', 30)
+        && testo('note', 3000) && testo('parrucchiera', 60);
+      allow delete: if isAdmin();
+
+      match /schede/{schedaId} {
+        allow read: if isStaff();
+        allow create, update: if isStaff()
+          && request.resource.data.data is string
+          && testo('servizio', 80) && testo('formula', 5000) && testo('ossigeno', 60)
+          && testo('posa', 30) && testo('note', 5000) && testo('parrucchiera', 60);
+        allow delete: if isStaff();
+      }
+    }
+
+    // Tutto il resto è chiuso.
+    match /{documento=**} {
+      allow read, write: if false;
+    }
+  }
+}
