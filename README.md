@@ -1,121 +1,74 @@
 # Schede colore – Future'Sun
 
 Gestionale delle schede colore del salone: clienti, formule, ossigeno, posa, note e parrucchiera che segue la cliente.
-Si entra solo con **nickname e password**, gli accessi li crea l'amministratore.
 
-Funziona da computer, tablet e telefono. I dati stanno su **Firebase** (Google), protetti da regole di sicurezza
-che permettono di leggere e scrivere **solo** alle persone abilitate nell'elenco «Accessi».
+Si entra con **un solo nickname e una sola password, uguali per tutto il salone**.
+Funziona da computer, tablet e telefono. I dati stanno su **Firebase** (Google), in Europa, e possono
+leggerli e modificarli **solo** con quell'accesso.
+
+- App: **https://ne8mo.github.io/schede-colore-/**
+- Nickname: **`futuresun`**
+- Progetto Firebase: `gestionale-schede-tecniche`
 
 ---
 
 ## Come funziona la sicurezza
 
-- **Login con nickname e password.** Firebase usa internamente un indirizzo email finto
-  (`nickname@staff.schede-colore.app`). Nessuna email viene mai inviata.
-- **Chi non è nell'elenco «Accessi» non vede niente.** Anche se qualcuno riuscisse a creare un account da solo,
-  le regole del database ([`firestore.rules`](firestore.rules)) gli negano ogni lettura e scrittura.
-- **Bloccare una persona è immediato.** Se una dipendente se ne va, in *Impostazioni → Accessi* premi
-  «Blocca accesso» e non vede più nulla, anche se ricorda la password.
-- **Due ruoli.**
-  - *Personale*: vede e modifica clienti e schede.
-  - *Amministratore*: in più crea e blocca gli accessi ed elimina le clienti.
-- **Uscita automatica.** Dopo 20 minuti senza usare l'app, o chiudendo il browser, bisogna rientrare.
+- **Un solo accesso per tutte.** Il nickname `futuresun` per Firebase è l'indirizzo interno
+  `futuresun@staff.schede-colore.app`. Non è un indirizzo vero e non riceve posta.
+- **Il controllo lo fa il server di Firebase**, non la pagina. Le regole ([`firestore.rules`](firestore.rules))
+  rispondono solo a quell'account: chi non ha fatto l'accesso, o entra con un altro account, non vede nulla.
+  Non si aggira modificando la pagina.
+- **Nessuno può creare altri accessi dall'esterno**, perché la registrazione è chiusa nella console di Firebase (passo 5).
+- **Uscita automatica** dopo 20 minuti senza usare l'app, o chiudendo il browser.
   I minuti si cambiano in `public/firebase-config.js`.
-- **Il sito non compare su Google** (`noindex` e `robots.txt`).
+- **Il sito non compare su Google** (`noindex`).
+- **Se una dipendente lascia il salone**, cambia la password (*Impostazioni → Password del salone*) e
+  comunicala di persona alle altre.
 
-Le regole sono verificate da prove automatiche (`npm test`). Le prove controllano che visitatori, account
-non abilitati e account bloccati non possano leggere nulla.
+Le regole sono verificate da prove automatiche (`npm test`). Le prove controllano che visitatori e qualsiasi
+altro account, anche con nomi simili, non possano leggere né scrivere nulla.
 
 ---
 
-## Metodo senza computer: GitHub Pages + regole incollate nella console
+## Messa online (una volta sola, tutto dal browser)
 
-È il modo più semplice: niente installazioni sul PC.
+### 1. Progetto Firebase
+<https://console.firebase.google.com> → **Crea un progetto** → Google Analytics disattivato.
 
-1. Fai i passi **1, 2, 3 e 4** qui sotto (progetto, login, database, configurazione).
-2. **Regole di sicurezza:** apri il file [`firestore.rules`](firestore.rules) su GitHub, copia tutto il testo, poi
-   in Firebase vai su **Firestore Database → Regole**, cancella quello che c'è, incolla e premi **Pubblica**.
-3. **Pubblica l'app:** su GitHub, nel repository, **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-   Poi nella scheda **Actions** apri «Pubblica su GitHub Pages» e premi **Run workflow** (solo la prima volta:
-   dopo si aggiorna da sola a ogni modifica).
-4. L'app è su **`https://<utente>.github.io/<repository>/`**, per esempio `https://ne8mo.github.io/schede-colore-/`.
-5. In Firebase, **Authentication → Impostazioni → Domini autorizzati → Aggiungi dominio**: `<utente>.github.io`.
-6. Apri l'app e fai il **Primo avvio** (passo 7 qui sotto).
+### 2. Login
+**Authentication → Inizia → Metodo di accesso → Email/password**: attiva solo la prima voce e salva.
 
-Se in futuro cambiano le regole di sicurezza, vanno incollate di nuovo come al punto 2.
+### 3. Database
+**Firestore Database → Crea database**:
+- edizione **Standard**;
+- località **`europe-west8 (Milano)`**;
+- **modalità di produzione**.
 
-## Mettere online l'app su Firebase (una volta sola)
+### 4. Collega l'app
+**Impostazioni progetto → Le tue app → `</>`**, registra l'app e copia i valori di `firebaseConfig`
+in [`public/firebase-config.js`](public/firebase-config.js). *(Già fatto per `gestionale-schede-tecniche`.)*
 
-Ti servono circa 20 minuti e un account Google. Firebase con il piano gratuito **Spark** basta e avanza per un salone.
+### 5. Crea l'accesso del salone e chiudi la registrazione
+1. **Authentication → Utenti → Aggiungi utente**:
+   - Email: **`futuresun@staff.schede-colore.app`**
+   - Password: quella che userete tutte (almeno 8 caratteri, non banale).
+2. **Authentication → Impostazioni → Azioni utente**: togli la spunta da **Abilita creazione (registrazione)**
+   e salva. Così nessun altro può crearsi un accesso.
 
-### 1. Crea il progetto
+### 6. Regole di sicurezza
+Apri [`firestore.rules`](firestore.rules) su GitHub, copia tutto il testo, poi in **Firestore Database → Regole**
+cancella quello che c'è, incolla e premi **Pubblica**.
 
-1. Vai su <https://console.firebase.google.com> ed entra con il tuo account Google.
-2. **Crea un progetto**, per esempio `schede-colore-futuresun`.
-3. Google Analytics: **disattivalo**, non serve.
+### 7. Pubblica l'app con GitHub Pages
+1. Nel repository: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. Scheda **Actions → «Pubblica su GitHub Pages» → Run workflow** (solo la prima volta: dopo si aggiorna da sola
+   a ogni modifica del repository).
+3. In Firebase: **Authentication → Impostazioni → Domini autorizzati → Aggiungi dominio** → `ne8mo.github.io`.
 
-### 2. Attiva il login
-
-1. Nel menu a sinistra: **Build → Authentication → Inizia**.
-2. Scheda **Metodo di accesso** → **Email/password** → attiva **solo la prima voce** (non "link email") → **Salva**.
-
-### 3. Crea il database (in Europa)
-
-1. Menu: **Build → Firestore Database → Crea database**.
-2. **Edizione Standard**.
-3. **Località**: scegli **`europe-west8 (Milano)`** oppure `eur3 (Europa)`. I dati delle clienti restano così
-   in Europa, come chiede il GDPR. **Non si può cambiare dopo.**
-4. Avvia in **modalità di produzione** (tutto chiuso). Le regole giuste le carichi al punto 6.
-
-### 4. Collega l'app al progetto
-
-1. Clicca l'**ingranaggio ⚙ → Impostazioni progetto**.
-2. In basso, «Le tue app»: clicca l'icona **`</>` (Web)**, dai un nome (es. `schede`), **non** spuntare Hosting qui → **Registra app**.
-3. Ti mostra un blocco `const firebaseConfig = { apiKey: ..., ... }`.
-   Copia i valori dentro **`public/firebase-config.js`** al posto di `INCOLLA-QUI`.
-
-> Questi valori non sono password: servono solo a dire all'app quale progetto usare.
-> La protezione vera la fanno le regole del database.
-
-### 5. Installa lo strumento di Firebase sul computer
-
-Serve [Node.js](https://nodejs.org) (versione "LTS"). Dopo averlo installato apri il **Prompt dei comandi**
-nella cartella del progetto e scrivi:
-
-```
-npm install -g firebase-tools
-firebase login
-```
-
-Si apre il browser: entra con lo stesso account Google del progetto.
-
-Poi collega la cartella al tuo progetto:
-
-```
-firebase use --add
-```
-
-Scegli il progetto creato al punto 1 e come nome scrivi `default`.
-
-### 6. Pubblica regole di sicurezza e app
-
-```
-firebase deploy --only firestore:rules,hosting
-```
-
-Alla fine compare un indirizzo tipo **`https://schede-colore-futuresun.web.app`**: è la tua app.
-
-### 7. Primo avvio
-
-1. Apri l'indirizzo. La prima volta compare **«Primo avvio»**: crea il tuo account amministratore
-   (nome, nickname, password di almeno 8 caratteri).
-   **Fallo subito dopo aver pubblicato**: il primo account creato diventa amministratore, e dopo questa
-   schermata non compare più.
-2. Vai in **Impostazioni**:
-   - aggiungi i nomi delle **parrucchiere**;
-   - in **Accessi** crea nickname e password per chi deve usare l'app. Comunica la password di persona,
-     mai per messaggio.
-3. Ognuna può cambiare la propria password in *Impostazioni → La mia password*.
+### 8. Entra
+Apri **https://ne8mo.github.io/schede-colore-/**, entra con `futuresun` e la password, poi in
+**Impostazioni** aggiungi i nomi delle parrucchiere.
 
 ---
 
@@ -126,30 +79,16 @@ Alla fine compare un indirizzo tipo **`https://schede-colore-futuresun.web.app`*
 - **+ Nuova cliente**: nome, cognome, telefono, parrucchiera che la segue, note fisse (allergie, cute sensibile…).
 - Nella scheda della cliente:
   - **+ Nuova scheda** registra data, parrucchiera, servizio, formula, ossigeno, posa e risultato;
-  - **Riusa questa formula** apre una nuova scheda già compilata con la formula di quella volta,
-    così cambi solo quello che serve.
+  - **Riusa questa formula** apre una nuova scheda già compilata con la formula di quella volta.
 - Si può lavorare in più persone insieme: le modifiche compaiono subito su tutti i dispositivi.
 
-### Se una dipendente dimentica la password
+### Password dimenticata
+Firebase → **Authentication → Utenti** → sulla riga di `futuresun@staff.schede-colore.app` → **⋮ → Elimina account**.
+Poi ricrealo come al passo 5.1 con una password nuova. Clienti e schede **non** vengono toccate.
 
-Per sicurezza l'app non permette di vedere o reimpostare le password altrui. L'amministratore blocca il vecchio
-accesso e ne crea uno nuovo con un nickname diverso (es. `sara2`).
-
-### Se l'amministratrice dimentica la password
-
-Se c'è un'altra amministratrice, basta che crei un nuovo accesso. Altrimenti, dalla console Firebase:
-
-1. **Authentication → Utenti → Aggiungi utente**:
-   - email: `nuovonick@staff.schede-colore.app`;
-   - password nuova.
-
-   Copia l'**UID utente** che compare nell'elenco.
-2. **Firestore Database → collezione `staff` → Aggiungi documento**:
-   - come ID documento incolla l'UID;
-   - aggiungi i campi `nome` (stringa), `nickname` (stringa, `nuovonick`), `ruolo` (stringa, `admin`), `attivo` (booleano, `true`).
-3. Entra nell'app con `nuovonick` e la nuova password, poi blocca il vecchio accesso.
-
-Conviene avere **sempre almeno due amministratori**.
+### Cambiare il nickname
+Va cambiato in tre posti: l'utente in Authentication, l'email in `firestore.rules` (poi ripubblica le regole) e
+questa guida. Chiedi pure aiuto.
 
 ---
 
@@ -162,7 +101,7 @@ Ci sono due livelli di backup. Ti consiglio di usarli **tutti e due**.
 *Impostazioni → Backup dei dati → **Scarica backup adesso*** scarica un file
 `schede-colore-backup-AAAA-MM-GG.json` con tutte le clienti, le schede e le parrucchiere.
 
-- Fallo **almeno una volta a settimana**. Se passano più di 7 giorni, l'app lo ricorda all'amministratore
+- Fallo **almeno una volta a settimana**. Se passano più di 7 giorni, l'app lo ricorda
   in cima all'elenco clienti.
 - Conserva il file in un posto sicuro: una chiavetta USB tenuta in salone, oppure una cartella protetta da
   password. **Non mandarlo via WhatsApp o email**: contiene dati personali delle clienti.
@@ -214,13 +153,14 @@ finché non scade.
 
 ---
 
+---
+
 ## Privacy e dati sensibili (GDPR)
 
 - Le schede contengono dati personali e a volte sanitari (allergie, reazioni della cute): raccogli il
-  **consenso** della cliente e dalle l'**informativa privacy**. Il tuo commercialista o consulente privacy
-  può fornirti un modello.
+  **consenso** della cliente e dalle l'**informativa privacy**. Il tuo consulente privacy può fornirti un modello.
 - In Firebase → Impostazioni progetto → **Privacy** puoi accettare l'«Emendamento sul trattamento dei dati» (DPA) di Google.
-- Crea accessi solo per chi ne ha bisogno e **blocca subito** chi non lavora più in salone.
+- Dai la password solo a chi lavora in salone e **cambiala** quando qualcuno se ne va.
 - Non lasciare l'app aperta su dispositivi condivisi: c'è l'uscita automatica, ma premere «Esci» è meglio.
 
 ---
@@ -231,7 +171,8 @@ finché non scade.
 npm install
 npm test          # prova le regole di sicurezza sull'emulatore (serve Java)
 npm run locale    # emulatori: apri http://127.0.0.1:5050/?emulatori=1
-npm run pubblica  # pubblica regole e app
 ```
 
 Con `?emulatori=1` su localhost l'app usa gli emulatori locali invece del progetto vero.
+Ogni modifica al ramo `main` viene pubblicata da sola su GitHub Pages (`.github/workflows/pages.yml`).
+Le regole di Firestore invece vanno ripubblicate a mano (passo 6) o con `firebase deploy --only firestore:rules`.

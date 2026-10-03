@@ -1,7 +1,7 @@
-import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import {
-  getAuth, connectAuthEmulator, setPersistence, browserSessionPersistence, inMemoryPersistence,
-  onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut,
+  getAuth, connectAuthEmulator, setPersistence, browserSessionPersistence,
+  onAuthStateChanged, signInWithEmailAndPassword, signOut,
   EmailAuthProvider, reauthenticateWithCredential, updatePassword,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
@@ -32,10 +32,9 @@ if (usaEmulatori && app) {
 
 const stato = {
   utente: null,       // utente Firebase
-  profilo: null,      // documento staff
+  nick: null,         // nickname con cui si è entrati
   clienti: [],
   parrucchiere: [],
-  staff: [],
   backup: undefined,  // { ultimo, da } dell'ultimo backup scaricato (null = mai fatto)
   caricato: false,
   ascolti: [],        // listener da chiudere all'uscita
@@ -159,11 +158,6 @@ function rotta() {
 
 // ------------------------------------------------------------------ accesso
 
-async function setupFatto() {
-  const s = await getDoc(doc(db, "config", "setup"));
-  return s.exists();
-}
-
 function schermataNonConfigurata() {
   radice.replaceChildren(h("main", { class: "centro" }, h("div", { class: "pannello stretto" },
     h("h1", {}, "Manca la configurazione"),
@@ -172,55 +166,9 @@ function schermataNonConfigurata() {
   )));
 }
 
-function schermataLogin(primoAvvio) {
+function schermataLogin() {
   const errore = h("p", { class: "errore", hidden: true });
   const mostraErrore = (t) => { errore.textContent = t; errore.hidden = false; };
-
-  if (primoAvvio) {
-    const nome = h("input", { required: true, autocomplete: "name", placeholder: "Es. Giulia" });
-    const nick = h("input", { required: true, autocomplete: "username", autocapitalize: "none", placeholder: "Es. giulia" });
-    const pw = h("input", { type: "password", required: true, minlength: 8, autocomplete: "new-password" });
-    const pw2 = h("input", { type: "password", required: true, minlength: 8, autocomplete: "new-password" });
-    const bottone = h("button", { type: "submit", class: "bottone largo" }, "Crea account amministratore");
-    const form = h("form", {
-      class: "pannello stretto",
-      onsubmit: async (ev) => {
-        ev.preventDefault();
-        errore.hidden = true;
-        if (!/^[a-z0-9._-]{3,30}$/.test(normalizzaNick(nick.value)))
-          return mostraErrore("Il nickname può contenere solo lettere, numeri, punto, trattino (da 3 a 30 caratteri).");
-        if (pw.value !== pw2.value) return mostraErrore("Le due password non coincidono.");
-        bottone.disabled = true;
-        try {
-          const cred = await createUserWithEmailAndPassword(auth, emailDaNick(nick.value), pw.value);
-          const batch = writeBatch(db);
-          batch.set(doc(db, "staff", cred.user.uid), {
-            nome: nome.value.trim(), nickname: normalizzaNick(nick.value), ruolo: "admin", attivo: true,
-            creatoIl: serverTimestamp(),
-          });
-          batch.set(doc(db, "config", "setup"), { fatto: true, quando: serverTimestamp() });
-          await batch.commit();
-          avvisa("Benvenuta! Il tuo account amministratore è pronto.");
-          avvia(cred.user);
-        } catch (e) {
-          bottone.disabled = false;
-          mostraErrore(erroreLeggibile(e));
-        }
-      },
-    },
-      h("div", { class: "marchio" }, nomeSalone),
-      h("h1", {}, "Primo avvio"),
-      h("p", { class: "tenue" }, "Crea l'account dell'amministratore. Dopo potrai aggiungere gli accessi per le altre persone dalle Impostazioni."),
-      campo("Il tuo nome", nome),
-      campo("Nickname (per entrare)", nick),
-      campo("Password", pw, "Almeno 8 caratteri."),
-      campo("Ripeti la password", pw2),
-      errore, bottone,
-    );
-    radice.replaceChildren(h("main", { class: "centro" }, form));
-    nome.focus();
-    return;
-  }
 
   const nick = h("input", { required: true, autocomplete: "username", autocapitalize: "none", id: "nick" });
   const pw = h("input", { type: "password", required: true, autocomplete: "current-password", id: "password" });
@@ -255,7 +203,7 @@ function schermataLogin(primoAvvio) {
 function schermataNonAutorizzato() {
   radice.replaceChildren(h("main", { class: "centro" }, h("div", { class: "pannello stretto" },
     h("h1", {}, "Accesso non autorizzato"),
-    h("p", {}, "Questo account non è abilitato o è stato disattivato. Chiedi all'amministratore."),
+    h("p", {}, "Questo account non è abilitato a vedere le schede."),
     h("button", { class: "bottone", onclick: () => signOut(auth) }, "Esci"),
   )));
 }
@@ -268,13 +216,16 @@ function chiudiAscolti() {
 }
 
 async function avvia(utente) {
-  const profilo = await getDoc(doc(db, "staff", utente.uid)).catch(() => null);
-  if (!profilo?.exists() || !profilo.data().attivo) {
-    schermataNonAutorizzato();
+  // le regole di Firestore fanno entrare solo l'account del salone: se un altro account prova, viene respinto
+  try {
+    await getDoc(doc(db, "config", "backup"));
+  } catch (e) {
+    if (e?.code === "permission-denied") schermataNonAutorizzato();
+    else avvisa(erroreLeggibile(e), "errore");
     return;
   }
   stato.utente = utente;
-  stato.profilo = { id: utente.uid, ...profilo.data() };
+  stato.nick = (utente.email || "").split("@")[0];
   chiudiAscolti();
   let pronti = 0;
   const quandoPronto = () => {
@@ -289,17 +240,10 @@ async function avvia(utente) {
     stato.parrucchiere = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => confronta(a.nome, b.nome));
     quandoPronto();
   }, (e) => avvisa(erroreLeggibile(e), "errore")));
-  if (stato.profilo.ruolo === "admin") {
-    stato.ascolti.push(onSnapshot(collection(db, "staff"), (snap) => {
-      stato.staff = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => confronta(a.nome || a.nickname, b.nome || b.nickname));
-      if (rotta().pagina === "impostazioni" && !moduloAperto()) disegna();
-    }));
-    stato.ascolti.push(onSnapshot(doc(db, "config", "backup"), (snap) => {
-      stato.backup = snap.exists() ? snap.data() : null;
-      if (!moduloAperto()) disegna();
-    }));
-  }
+  stato.ascolti.push(onSnapshot(doc(db, "config", "backup"), (snap) => {
+    stato.backup = snap.exists() ? snap.data() : null;
+    if (!moduloAperto()) disegna();
+  }));
 }
 
 // uscita automatica dopo un periodo di inattività
@@ -323,7 +267,7 @@ function barra() {
       h("a", { href: "#/", class: pagina === "" || pagina === "cliente" ? "attivo" : "" }, "Clienti"),
       h("a", { href: "#/impostazioni", class: pagina === "impostazioni" ? "attivo" : "" }, "Impostazioni"),
       h("button", { class: "link", onclick: () => signOut(auth), title: "Esci" },
-        h("span", { class: "chi" }, stato.profilo.nome || stato.profilo.nickname), " · Esci"),
+        h("span", { class: "chi" }, stato.nick), " · Esci"),
     ),
   );
 }
@@ -521,7 +465,6 @@ function paginaCliente(id) {
   const c = stato.clienti.find((x) => x.id === id);
   if (!c) return h("div", { class: "vuoto" }, "Cliente non trovata. ", h("a", { href: "#/" }, "Torna all'elenco"));
   ascoltaSchede(id);
-  const admin = stato.profilo.ruolo === "admin";
 
   const schede = stato.schede;
   const nuovaAperta = stato.schedaInModifica === "nuova";
@@ -558,7 +501,7 @@ function paginaCliente(id) {
         ? schede.map((s) => stato.schedaInModifica === s.id ? moduloScheda(c, s) : cartaScheda(c, s))
         : !nuovaAperta && h("div", { class: "vuoto" }, "Nessuna scheda. Premi «+ Nuova scheda» per registrare il primo colore."),
 
-    admin && h("div", { class: "zona-pericolo" },
+    h("div", { class: "zona-pericolo" },
       h("button", {
         class: "bottone pericolo piccolo",
         onclick: () => eliminaCliente(c),
@@ -615,7 +558,7 @@ function moduloScheda(c, s) {
       const dati = {
         data: data.value, parrucchiera: parrucchiera.value, servizio: servizio.value.trim(),
         formula: formula.value.trim(), ossigeno: ossigeno.value.trim(), posa: posa.value.trim(), note: note.value.trim(),
-        aggiornatoIl: serverTimestamp(), aggiornatoDa: stato.profilo.nome || stato.profilo.nickname,
+        aggiornatoIl: serverTimestamp(),
       };
       try {
         const batch = writeBatch(db);
@@ -684,7 +627,7 @@ function giorniDallUltimoBackup() {
 }
 
 function promemoriaBackup() {
-  if (stato.profilo?.ruolo !== "admin" || !stato.clienti.length || stato.backup === undefined) return null;
+  if (!stato.clienti.length || stato.backup === undefined) return null;
   const giorni = giorniDallUltimoBackup();
   if (giorni !== null && giorni < GIORNI_PROMEMORIA_BACKUP) return null;
   return h("div", { class: "promemoria" },
@@ -702,7 +645,7 @@ function sezioneBackup() {
     bottone.textContent = "Preparazione…";
     try {
       const { clienti, schede } = await creaBackup(db, nomeSalone);
-      await setDoc(doc(db, "config", "backup"), { ultimo: serverTimestamp(), da: stato.profilo.nome || stato.profilo.nickname });
+      await setDoc(doc(db, "config", "backup"), { ultimo: serverTimestamp() });
       avvisa(`Backup scaricato: ${clienti} clienti e ${schede} schede.`);
     } catch (e) {
       avvisa(erroreLeggibile(e), "errore");
@@ -736,7 +679,7 @@ function sezioneBackup() {
     h("p", {},
       ultimo
         ? ["Ultimo backup: ", h("strong", {}, ultimo.toLocaleString("it-IT", { dateStyle: "long", timeStyle: "short" })),
-          stato.backup.da && ` (${stato.backup.da})`, giorni >= GIORNI_PROMEMORIA_BACKUP && h("span", { class: "rosso" }, " – da rifare")]
+giorni >= GIORNI_PROMEMORIA_BACKUP && h("span", { class: "rosso" }, " – da rifare")]
         : h("span", { class: "rosso" }, "Nessun backup scaricato finora."),
     ),
     h("p", { class: "tenue" },
@@ -754,17 +697,15 @@ function sezioneBackup() {
 // ------------------------------------------------------------------ impostazioni
 
 function paginaImpostazioni() {
-  const admin = stato.profilo.ruolo === "admin";
   return h("div", {},
     h("h1", {}, "Impostazioni"),
-    sezioneParrucchiere(admin),
-    admin && sezioneBackup(),
-    admin && sezioneAccessi(),
+    sezioneParrucchiere(),
+    sezioneBackup(),
     sezionePassword(),
   );
 }
 
-function sezioneParrucchiere(admin) {
+function sezioneParrucchiere() {
   const nome = h("input", { required: true, maxlength: 60, placeholder: "Nome della parrucchiera" });
   return h("section", { class: "pannello" },
     h("h2", {}, "Parrucchiere"),
@@ -784,7 +725,7 @@ function sezioneParrucchiere(admin) {
           onclick: () => updateDoc(doc(db, "parrucchiere", p.id), { nome: p.nome, attiva: p.attiva === false })
             .catch((e) => avvisa(erroreLeggibile(e), "errore")),
         }, p.attiva === false ? "Riattiva" : "Disattiva"),
-        admin && h("button", {
+        h("button", {
           class: "link rosso",
           onclick: async () => {
             if (confirm(`Eliminare ${p.nome} dall'elenco? Le schede già salvate mantengono il nome.`))
@@ -810,78 +751,13 @@ function sezioneParrucchiere(admin) {
   );
 }
 
-function sezioneAccessi() {
-  const nome = h("input", { required: true, maxlength: 60, placeholder: "Es. Sara" });
-  const nick = h("input", { required: true, autocapitalize: "none", autocomplete: "off", placeholder: "Es. sara" });
-  const pw = h("input", { type: "text", required: true, minlength: 8, autocomplete: "off", placeholder: "Almeno 8 caratteri" });
-  const ruolo = h("select", {}, h("option", { value: "staff" }, "Personale"), h("option", { value: "admin" }, "Amministratore"));
-  const bottone = h("button", { class: "bottone", type: "submit" }, "Crea accesso");
-
-  return h("section", { class: "pannello" },
-    h("h2", {}, "Accessi"),
-    h("p", { class: "tenue" },
-      "Solo le persone in questo elenco possono entrare. «Personale» vede e modifica clienti e schede; ",
-      "«Amministratore» può anche gestire gli accessi ed eliminare le clienti."),
-    h("ul", { class: "righe" }, stato.staff.map((u) => h("li", { class: u.attivo ? "" : "spenta" },
-      h("span", {}, h("strong", {}, u.nome || u.nickname), h("small", { class: "tenue" }, ` @${u.nickname} · ${u.ruolo === "admin" ? "Amministratore" : "Personale"}`),
-        !u.attivo && h("small", { class: "tenue" }, " · disattivato")),
-      u.id !== stato.profilo.id
-        ? h("span", { class: "azioni" },
-          h("button", {
-            class: "link",
-            onclick: () => updateDoc(doc(db, "staff", u.id), { ruolo: u.ruolo === "admin" ? "staff" : "admin" })
-              .catch((e) => avvisa(erroreLeggibile(e), "errore")),
-          }, u.ruolo === "admin" ? "Rendi personale" : "Rendi amministratore"),
-          h("button", {
-            class: u.attivo ? "link rosso" : "link",
-            onclick: () => updateDoc(doc(db, "staff", u.id), { attivo: !u.attivo })
-              .catch((e) => avvisa(erroreLeggibile(e), "errore")),
-          }, u.attivo ? "Blocca accesso" : "Riattiva"),
-        )
-        : h("small", { class: "tenue" }, "sei tu"),
-    ))),
-    h("h3", {}, "Nuovo accesso"),
-    h("form", {
-      onsubmit: async (ev) => {
-        ev.preventDefault();
-        const n = normalizzaNick(nick.value);
-        if (!/^[a-z0-9._-]{3,30}$/.test(n))
-          return avvisa("Il nickname può contenere solo lettere, numeri, punto e trattino (3-30 caratteri).", "errore");
-        bottone.disabled = true;
-        // si usa una seconda istanza di Firebase per creare l'account senza far uscire l'amministratore
-        const secondaria = initializeApp(firebaseConfig, `creazione-${Date.now()}`);
-        try {
-          const auth2 = getAuth(secondaria);
-          if (usaEmulatori) connectAuthEmulator(auth2, "http://127.0.0.1:9099", { disableWarnings: true });
-          await setPersistence(auth2, inMemoryPersistence);
-          const cred = await createUserWithEmailAndPassword(auth2, emailDaNick(n), pw.value);
-          await setDoc(doc(db, "staff", cred.user.uid), {
-            nome: nome.value.trim(), nickname: n, ruolo: ruolo.value, attivo: true, creatoIl: serverTimestamp(),
-          });
-          await signOut(auth2);
-          avvisa(`Accesso creato: nickname «${n}». Comunica la password di persona.`);
-          nome.value = nick.value = pw.value = "";
-        } catch (e) {
-          avvisa(erroreLeggibile(e), "errore");
-        } finally {
-          bottone.disabled = false;
-          deleteApp(secondaria);
-        }
-      },
-    },
-      h("div", { class: "griglia-2" }, campo("Nome", nome), campo("Nickname", nick)),
-      h("div", { class: "griglia-2" }, campo("Password iniziale", pw), campo("Ruolo", ruolo)),
-      h("div", { class: "azioni" }, bottone),
-    ),
-  );
-}
-
 function sezionePassword() {
   const attuale = h("input", { type: "password", required: true, autocomplete: "current-password" });
   const nuova = h("input", { type: "password", required: true, minlength: 8, autocomplete: "new-password" });
   return h("section", { class: "pannello" },
-    h("h2", {}, "La mia password"),
-    h("p", { class: "tenue" }, `Sei entrata come «${stato.profilo.nickname}».`),
+    h("h2", {}, "Password del salone"),
+    h("p", { class: "tenue" }, `Nickname: «${stato.nick}». La password è la stessa per tutte: `,
+      "dopo averla cambiata comunicala alle colleghe di persona, non per messaggio."),
     h("form", {
       onsubmit: async (ev) => {
         ev.preventDefault();
@@ -920,10 +796,8 @@ if (!configurato) {
       await avvia(utente);
     } else {
       chiudiAscolti();
-      Object.assign(stato, { utente: null, profilo: null, clienti: [], parrucchiere: [], staff: [], backup: undefined, caricato: false, schede: [] });
-      let primo = false;
-      try { primo = !(await setupFatto()); } catch (e) { /* offline: mostra il login normale */ }
-      schermataLogin(primo);
+      Object.assign(stato, { utente: null, nick: null, clienti: [], parrucchiere: [], backup: undefined, caricato: false, schede: [] });
+      schermataLogin();
     }
   });
 }
