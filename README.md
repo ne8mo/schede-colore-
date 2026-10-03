@@ -28,6 +28,22 @@ non abilitati e account bloccati non possano leggere nulla.
 
 ---
 
+## Metodo senza computer: GitHub Pages + regole incollate nella console
+
+È il modo più semplice: niente installazioni sul PC.
+
+1. Fai i passi **1, 2, 3 e 4** qui sotto (progetto, login, database, configurazione).
+2. **Regole di sicurezza:** apri il file [`firestore.rules`](firestore.rules) su GitHub, copia tutto il testo, poi
+   in Firebase vai su **Firestore Database → Regole**, cancella quello che c'è, incolla e premi **Pubblica**.
+3. **Pubblica l'app:** su GitHub, nel repository, **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+   Poi nella scheda **Actions** apri «Pubblica su GitHub Pages» e premi **Run workflow** (solo la prima volta:
+   dopo si aggiorna da sola a ogni modifica).
+4. L'app è su **`https://<utente>.github.io/<repository>/`**, per esempio `https://ne8mo.github.io/schede-colore-/`.
+5. In Firebase, **Authentication → Impostazioni → Domini autorizzati → Aggiungi dominio**: `<utente>.github.io`.
+6. Apri l'app e fai il **Primo avvio** (passo 7 qui sotto).
+
+Se in futuro cambiano le regole di sicurezza, vanno incollate di nuovo come al punto 2.
+
 ## Mettere online l'app su Firebase (una volta sola)
 
 Ti servono circa 20 minuti e un account Google. Firebase con il piano gratuito **Spark** basta e avanza per un salone.
