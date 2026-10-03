@@ -80,6 +80,14 @@ Apri **https://ne8mo.github.io/schede-colore-/**, entra con `futuresun` e la pas
 - Nella scheda della cliente:
   - **+ Nuova scheda** registra data, parrucchiera, servizio, formula, ossigeno, posa e risultato;
   - **Riusa questa formula** apre una nuova scheda già compilata con la formula di quella volta.
+- **Schede di carta**: nella pagina della cliente premi **📷 Carica foto**. Dal telefono puoi scattare la foto
+  o sceglierla dalla galleria, anche più foto insieme (fronte e retro).
+  - Le foto compaiono come miniature: toccale per vederle a schermo intero, ingrandirle e aggiungere data e nota.
+  - **Trascrivi in una scheda** apre la scheda da compilare con la foto accanto, così puoi copiarla con calma.
+    Si possono tenere solo le foto, solo le schede scritte, o entrambe.
+  - L'app riduce le foto (lato lungo massimo 2000 pixel, sotto 1 MB) prima di salvarle: la scrittura resta
+    leggibile e con il piano gratuito ci stanno alcune migliaia di foto.
+  - Su iPhone, se una foto non viene accettata: Impostazioni → Fotocamera → Formati → **Più compatibile**.
 - Si può lavorare in più persone insieme: le modifiche compaiono subito su tutti i dispositivi.
 
 ### Password dimenticata
@@ -99,7 +107,8 @@ Ci sono due livelli di backup. Ti consiglio di usarli **tutti e due**.
 ### 1. Backup su file, dall'app (gratis)
 
 *Impostazioni → Backup dei dati → **Scarica backup adesso*** scarica un file
-`schede-colore-backup-AAAA-MM-GG.json` con tutte le clienti, le schede e le parrucchiere.
+`schede-colore-backup-AAAA-MM-GG.json` con tutte le clienti, le schede, le foto e le parrucchiere.
+Con tante foto il file può pesare qualche centinaio di MB: è normale.
 
 - Fallo **almeno una volta a settimana**. Se passano più di 7 giorni, l'app lo ricorda
   in cima all'elenco clienti.

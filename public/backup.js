@@ -5,6 +5,7 @@ import {
 
 const VERSIONE = 1;
 const OPERAZIONI_PER_BLOCCO = 400; // Firestore accetta al massimo 500 scritture per volta
+const BYTE_PER_BLOCCO = 6_000_000;  // e al massimo circa 10 MB per volta: le foto pesano, quindi si spezza prima
 
 // Le date di Firestore diventano {"__data": "2026-10-03T10:00:00.000Z"} nel file, e tornano date al ripristino.
 function inFile(valore) {
@@ -29,8 +30,16 @@ export async function preparaBackup(db, nomeSalone) {
     getDocs(collection(db, "parrucchiere")),
   ]);
   const elenco = await Promise.all(clienti.docs.map(async (c) => {
-    const schede = await getDocs(collection(db, "clienti", c.id, "schede"));
-    return { id: c.id, ...inFile(c.data()), schede: schede.docs.map((s) => ({ id: s.id, ...inFile(s.data()) })) };
+    const [schede, foto] = await Promise.all([
+      getDocs(collection(db, "clienti", c.id, "schede")),
+      getDocs(collection(db, "clienti", c.id, "foto")),
+    ]);
+    return {
+      id: c.id,
+      ...inFile(c.data()),
+      schede: schede.docs.map((s) => ({ id: s.id, ...inFile(s.data()) })),
+      foto: foto.docs.map((f) => ({ id: f.id, ...inFile(f.data()) })),
+    };
   }));
   return {
     app: "schede-colore",
@@ -52,7 +61,11 @@ export async function creaBackup(db, nomeSalone) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return { clienti: dati.clienti.length, schede: dati.clienti.reduce((n, c) => n + c.schede.length, 0) };
+  return {
+    clienti: dati.clienti.length,
+    schede: dati.clienti.reduce((n, c) => n + c.schede.length, 0),
+    foto: dati.clienti.reduce((n, c) => n + c.foto.length, 0),
+  };
 }
 
 export async function leggiBackup(file) {
@@ -72,17 +85,33 @@ export async function ripristinaBackup(db, dati) {
   const operazioni = [];
   for (const { id, ...p } of dati.parrucchiere) operazioni.push([doc(db, "parrucchiere", id), daFile(p)]);
   let schede = 0;
-  for (const { id, schede: elencoSchede = [], ...c } of dati.clienti) {
+  let foto = 0;
+  for (const { id, schede: elencoSchede = [], foto: elencoFoto = [], ...c } of dati.clienti) {
     operazioni.push([doc(db, "clienti", id), daFile(c)]);
     for (const { id: idScheda, ...s } of elencoSchede) {
       operazioni.push([doc(db, "clienti", id, "schede", idScheda), daFile(s)]);
       schede++;
     }
+    for (const { id: idFoto, ...f } of elencoFoto) {
+      operazioni.push([doc(db, "clienti", id, "foto", idFoto), daFile(f)]);
+      foto++;
+    }
   }
-  for (let i = 0; i < operazioni.length; i += OPERAZIONI_PER_BLOCCO) {
-    const batch = writeBatch(db);
-    for (const [riferimento, valori] of operazioni.slice(i, i + OPERAZIONI_PER_BLOCCO)) batch.set(riferimento, valori);
-    await batch.commit();
+  let batch = writeBatch(db);
+  let nelBlocco = 0;
+  let byte = 0;
+  for (const [riferimento, valori] of operazioni) {
+    const peso = JSON.stringify(valori).length;
+    if (nelBlocco && (nelBlocco >= OPERAZIONI_PER_BLOCCO || byte + peso > BYTE_PER_BLOCCO)) {
+      await batch.commit();
+      batch = writeBatch(db);
+      nelBlocco = 0;
+      byte = 0;
+    }
+    batch.set(riferimento, valori);
+    nelBlocco++;
+    byte += peso;
   }
-  return { clienti: dati.clienti.length, schede };
+  if (nelBlocco) await batch.commit();
+  return { clienti: dati.clienti.length, schede, foto };
 }

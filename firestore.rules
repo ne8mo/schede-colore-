@@ -40,6 +40,15 @@ service cloud.firestore {
         && testo('nome', 80) && testo('cognome', 80) && testo('telefono', 30)
         && testo('note', 3000) && testo('parrucchiera', 60);
 
+      // foto delle schede cartacee, già compresse dall'app (un documento Firestore pesa al massimo 1 MB)
+      match /foto/{fotoId} {
+        allow read, delete: if autorizzato();
+        allow create, update: if autorizzato()
+          && request.resource.data.immagine is string
+          && request.resource.data.immagine.size() <= 1000000
+          && testo('nota', 500) && testo('dataScheda', 10);
+      }
+
       match /schede/{schedaId} {
         allow read, delete: if autorizzato();
         allow create, update: if autorizzato()

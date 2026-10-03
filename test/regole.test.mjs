@@ -64,6 +64,25 @@ describe("chi NON deve vedere i dati", () => {
   });
 });
 
+describe("foto delle schede cartacee", () => {
+  const foto = { immagine: "data:image/jpeg;base64,AAAA", larghezza: 10, altezza: 10, nota: "", dataScheda: "" };
+
+  test("solo il salone può vedere e caricare le foto", async () => {
+    await assertSucceeds(setDoc(doc(salone(), "clienti/c1/foto/f1"), foto));
+    await assertSucceeds(getDocs(collection(salone(), "clienti/c1/foto")));
+    await assertFails(getDocs(collection(anonimo(), "clienti/c1/foto")));
+    await assertFails(getDoc(doc(altro("altra@staff.schede-colore.app"), "clienti/c1/foto/f1")));
+    await assertFails(setDoc(doc(altro("altra@staff.schede-colore.app"), "clienti/c1/foto/f2"), foto));
+    await assertSucceeds(deleteDoc(doc(salone(), "clienti/c1/foto/f1")));
+  });
+
+  test("foto troppo grandi o senza immagine vengono rifiutate", async () => {
+    await assertFails(setDoc(doc(salone(), "clienti/c1/foto/f3"), { ...foto, immagine: "x".repeat(1000001) }));
+    await assertFails(setDoc(doc(salone(), "clienti/c1/foto/f4"), { nota: "senza immagine" }));
+    await assertFails(setDoc(doc(salone(), "clienti/c1/foto/f5"), { ...foto, nota: "x".repeat(501) }));
+  });
+});
+
 describe("l'account del salone può lavorare", () => {
   test("legge e scrive clienti, schede, parrucchiere e backup", async () => {
     const db = salone();

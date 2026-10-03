@@ -6,10 +6,11 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 import {
   getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc,
-  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp,
+  deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp, increment,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js";
 import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js";
+import { comprimiFoto, immagineSicura } from "./foto.js";
 
 // Il nickname diventa un indirizzo email interno: Firebase richiede un'email, ma nessuna email viene mai inviata.
 const DOMINIO_NICK = "staff.schede-colore.app";
@@ -40,6 +41,8 @@ const stato = {
   ascolti: [],        // listener da chiudere all'uscita
   ascoltoSchede: null,
   schede: [],
+  foto: [],
+  fotoRiferimento: null,   // foto della scheda cartacea da trascrivere
   schedaInModifica: null,  // id scheda o "nuova"
   baseScheda: null,        // scheda da cui copiare la formula
   messaggio: null,
@@ -323,7 +326,8 @@ function paginaClienti() {
         h("span", { class: "avatar" }, iniziali(c)),
         h("span", { class: "dati" },
           h("strong", {}, nomeInElenco(c, filtri.ordine)),
-          h("small", {}, [c.telefono, c.ultimaScheda && `ultima scheda ${dataBella(c.ultimaScheda)}`].filter(Boolean).join(" · ")),
+          h("small", {}, [c.telefono, c.ultimaScheda && `ultima scheda ${dataBella(c.ultimaScheda)}`,
+            c.numFoto > 0 && `📷 ${c.numFoto} foto`].filter(Boolean).join(" · ")),
         ),
         c.parrucchiera && h("span", { class: "chip" }, c.parrucchiera),
       )));
@@ -450,15 +454,23 @@ function ascoltaSchede(clienteId) {
   if (stato.ascoltoSchede?.clienteId === clienteId) return;
   if (stato.ascoltoSchede) stato.ascoltoSchede.stop();
   stato.schede = null;
-  const stop = onSnapshot(
+  stato.foto = null;
+  const ridisegna = () => { if (rotta().id === clienteId && !moduloAperto()) disegna(); };
+  const fermaSchede = onSnapshot(
     query(collection(db, "clienti", clienteId, "schede"), orderBy("data", "desc")),
+    (snap) => { stato.schede = snap.docs.map((d) => ({ id: d.id, ...d.data() })); ridisegna(); },
+    (e) => avvisa(erroreLeggibile(e), "errore"),
+  );
+  const fermaFoto = onSnapshot(
+    query(collection(db, "clienti", clienteId, "foto"), orderBy("creatoIl", "desc")),
     (snap) => {
-      stato.schede = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (rotta().id === clienteId && !moduloAperto()) disegna();
+      stato.foto = snap.docs.map((d) => ({ id: d.id, ...d.data({ serverTimestamps: "estimate" }) }));
+      aggiornaVisore();
+      ridisegna();
     },
     (e) => avvisa(erroreLeggibile(e), "errore"),
   );
-  stato.ascoltoSchede = { clienteId, stop };
+  stato.ascoltoSchede = { clienteId, stop: () => { fermaSchede(); fermaFoto(); } };
 }
 
 function paginaCliente(id) {
@@ -489,23 +501,28 @@ function paginaCliente(id) {
 
     h("div", { class: "testata-pagina" },
       h("h2", {}, "Schede colore"),
-      !nuovaAperta && h("button", {
-        class: "bottone",
-        onclick: () => { stato.schedaInModifica = "nuova"; stato.baseScheda = null; disegna(); },
-      }, "+ Nuova scheda"),
+      h("div", { class: "azioni" },
+        !nuovaAperta && h("button", {
+          class: "bottone",
+          onclick: () => { stato.schedaInModifica = "nuova"; stato.baseScheda = null; stato.fotoRiferimento = null; disegna(); },
+        }, "+ Nuova scheda"),
+        caricaFotoBottone(c),
+      ),
     ),
+    galleriaFoto(c),
     nuovaAperta && moduloScheda(c, null),
     schede === null
       ? h("p", { class: "tenue" }, "Caricamento…")
       : schede.length
         ? schede.map((s) => stato.schedaInModifica === s.id ? moduloScheda(c, s) : cartaScheda(c, s))
-        : !nuovaAperta && h("div", { class: "vuoto" }, "Nessuna scheda. Premi «+ Nuova scheda» per registrare il primo colore."),
+        : !nuovaAperta && !stato.foto?.length && h("div", { class: "vuoto" },
+          "Nessuna scheda. Premi «+ Nuova scheda» per scriverla, oppure «📷 Carica foto» per fotografare una scheda di carta."),
 
     h("div", { class: "zona-pericolo" },
       h("button", {
         class: "bottone pericolo piccolo",
         onclick: () => eliminaCliente(c),
-      }, "Elimina cliente e tutte le sue schede"),
+      }, "Elimina cliente, schede e foto"),
     ),
   );
 }
@@ -536,7 +553,7 @@ function cartaScheda(c, s) {
 
 function moduloScheda(c, s) {
   const base = s || stato.baseScheda || {};
-  const data = h("input", { type: "date", required: true, value: s ? s.data : oggi() });
+  const data = h("input", { type: "date", required: true, value: s ? s.data : (!s && stato.fotoRiferimento?.dataScheda) || oggi() });
   const parrucchiera = selectParrucchiera(s ? s.parrucchiera : (c.parrucchiera || ""));
   const servizio = h("input", { list: "elenco-servizi", value: base.servizio || "", maxlength: 80, placeholder: "Es. Ritocco radici" });
   const formula = h("textarea", {
@@ -547,10 +564,24 @@ function moduloScheda(c, s) {
   const posa = h("input", { value: base.posa || "", maxlength: 30, inputmode: "numeric", placeholder: "Es. 35" });
   const note = h("textarea", { rows: 3, maxlength: 5000, placeholder: "Com'è venuto, cosa cambiare la prossima volta…" }, s ? (s.note || "") : "");
   const bottone = h("button", { type: "submit", class: "bottone" }, s ? "Salva modifiche" : "Salva scheda");
-  const chiudi = () => { stato.schedaInModifica = null; stato.baseScheda = null; disegna(); };
+  const chiudi = () => { stato.schedaInModifica = null; stato.baseScheda = null; stato.fotoRiferimento = null; disegna(); };
+  const riferimento = !s && stato.fotoRiferimento;
+
+  const fotoRiferimento = riferimento && h("button", {
+    type: "button", class: "riferimento", title: "Apri la foto a schermo intero",
+    onclick: () => apriVisore(c, riferimento.id),
+  }, h("img", { src: immagineSicura(riferimento.immagine), alt: "Scheda cartacea da trascrivere" }),
+    h("span", {}, "Tocca per ingrandire"));
+  const campi = [
+    h("div", { class: "griglia-3" }, campo("Data", data), campo("Parrucchiera", parrucchiera), campo("Servizio", servizio)),
+    campo("Formula colore e prodotti", formula, "Nuance, grammi, prodotti usati. Puoi andare a capo."),
+    h("div", { class: "griglia-2" }, campo("Ossigeno", ossigeno), campo("Posa (minuti)", posa)),
+    campo("Risultato e note", note),
+    h("div", { class: "azioni" }, bottone, h("button", { type: "button", class: "bottone chiaro", onclick: chiudi }, "Annulla")),
+  ];
 
   const form = h("form", {
-    class: "pannello modulo-scheda",
+    class: riferimento ? "pannello modulo-scheda largo" : "pannello modulo-scheda",
     "data-in-compilazione": true,
     onsubmit: async (ev) => {
       ev.preventDefault();
@@ -569,6 +600,7 @@ function moduloScheda(c, s) {
         await batch.commit();
         stato.schedaInModifica = null;
         stato.baseScheda = null;
+        stato.fotoRiferimento = null;
         avvisa(s ? "Scheda aggiornata." : "Scheda salvata.");
         disegna();
       } catch (e) {
@@ -577,14 +609,11 @@ function moduloScheda(c, s) {
       }
     },
   },
-    h("h3", {}, s ? "Modifica scheda" : stato.baseScheda ? `Nuova scheda (dalla formula del ${dataBella(stato.baseScheda.data)})` : "Nuova scheda"),
+    h("h3", {}, s ? "Modifica scheda" : riferimento ? "Trascrivi la scheda cartacea"
+      : stato.baseScheda ? `Nuova scheda (dalla formula del ${dataBella(stato.baseScheda.data)})` : "Nuova scheda"),
     h("datalist", { id: "elenco-servizi" }, SERVIZI.map((v) => h("option", { value: v }))),
     h("datalist", { id: "elenco-ossigeni" }, OSSIGENI.map((v) => h("option", { value: v }))),
-    h("div", { class: "griglia-3" }, campo("Data", data), campo("Parrucchiera", parrucchiera), campo("Servizio", servizio)),
-    campo("Formula colore e prodotti", formula, "Nuance, grammi, prodotti usati. Puoi andare a capo."),
-    h("div", { class: "griglia-2" }, campo("Ossigeno", ossigeno), campo("Posa (minuti)", posa)),
-    campo("Risultato e note", note),
-    h("div", { class: "azioni" }, bottone, h("button", { type: "button", class: "bottone chiaro", onclick: chiudi }, "Annulla")),
+    riferimento ? h("div", { class: "trascrivi" }, fotoRiferimento, h("div", {}, campi)) : campi,
   );
   setTimeout(() => (s ? formula : servizio).focus());
   return form;
@@ -605,11 +634,15 @@ async function eliminaScheda(c, s) {
 }
 
 async function eliminaCliente(c) {
-  if (!confirm(`Eliminare ${nomeCompleto(c)} e tutte le sue schede? L'operazione non si può annullare.`)) return;
+  if (!confirm(`Eliminare ${nomeCompleto(c)} con tutte le sue schede e foto? L'operazione non si può annullare.`)) return;
   try {
-    const schede = await getDocs(collection(db, "clienti", c.id, "schede"));
+    const [schede, foto] = await Promise.all([
+      getDocs(collection(db, "clienti", c.id, "schede")),
+      getDocs(collection(db, "clienti", c.id, "foto")),
+    ]);
     const batch = writeBatch(db);
     schede.forEach((d) => batch.delete(d.ref));
+    foto.forEach((d) => batch.delete(d.ref));
     batch.delete(doc(db, "clienti", c.id));
     await batch.commit();
     avvisa("Cliente eliminata.");
@@ -618,6 +651,125 @@ async function eliminaCliente(c) {
     avvisa(erroreLeggibile(e), "errore");
   }
 }
+
+// ------------------------------------------------------------------ foto delle schede cartacee
+
+function caricaFotoBottone(c) {
+  const input = h("input", { type: "file", accept: "image/*", multiple: true, class: "nascosto", id: "carica-foto" });
+  input.addEventListener("change", async () => {
+    const files = [...input.files];
+    input.value = "";
+    if (!files.length) return;
+    let caricate = 0;
+    for (const [i, file] of files.entries()) {
+      avvisa(files.length > 1 ? `Carico la foto ${i + 1} di ${files.length}…` : "Carico la foto…");
+      try {
+        const { immagine, larghezza, altezza } = await comprimiFoto(file);
+        const batch = writeBatch(db);
+        batch.set(doc(collection(db, "clienti", c.id, "foto")), {
+          immagine, larghezza, altezza, nota: "", dataScheda: "", creatoIl: serverTimestamp(),
+        });
+        batch.update(doc(db, "clienti", c.id), { numFoto: increment(1) });
+        await batch.commit();
+        caricate++;
+      } catch (e) {
+        avvisa(e.message?.startsWith("«") || e.message?.startsWith("Non riesco") ? e.message : erroreLeggibile(e), "errore");
+        return;
+      }
+    }
+    avvisa(caricate === 1 ? "Foto caricata." : `${caricate} foto caricate.`);
+  });
+  return [input, h("label", { for: "carica-foto", class: "bottone chiaro", role: "button" }, "📷 Carica foto")];
+}
+
+function galleriaFoto(c) {
+  if (!stato.foto?.length) return null;
+  return h("section", { class: "galleria-sezione" },
+    h("h3", {}, `Schede cartacee (${stato.foto.length} foto)`),
+    h("div", { class: "galleria" }, stato.foto.map((f) => h("button", {
+      type: "button", class: "miniatura", title: "Apri la foto", onclick: () => apriVisore(c, f.id),
+    },
+      h("img", { src: immagineSicura(f.immagine), alt: f.nota || "Scheda cartacea", loading: "lazy" }),
+      (f.dataScheda || f.nota) && h("span", {}, [f.dataScheda && dataBella(f.dataScheda), f.nota].filter(Boolean).join(" · ")),
+    ))),
+  );
+}
+
+// visore a schermo intero: vive fuori dalla pagina, così non cancella una scheda che si sta scrivendo
+let visore = null;
+
+function chiudiVisore() {
+  visore?.elemento.remove();
+  visore = null;
+  document.body.classList.remove("visore-aperto");
+}
+
+function aggiornaVisore() {
+  if (!visore) return;
+  const f = stato.foto?.find((x) => x.id === visore.fotoId);
+  if (!f) chiudiVisore();
+}
+
+function apriVisore(c, fotoId) {
+  chiudiVisore();
+  const f = stato.foto?.find((x) => x.id === fotoId);
+  if (!f) return;
+  const img = h("img", { src: immagineSicura(f.immagine), alt: f.nota || "Scheda cartacea" });
+  const area = h("div", { class: "visore-immagine", onclick: () => area.classList.toggle("zoom") }, img);
+  const dataScheda = h("input", { type: "date", value: f.dataScheda || "", "aria-label": "Data della scheda" });
+  const nota = h("input", { value: f.nota || "", maxlength: 500, placeholder: "Nota (es. colore 2019, retro della scheda…)", "aria-label": "Nota" });
+  const elemento = h("div", { class: "visore", role: "dialog", "aria-modal": "true", "aria-label": "Foto della scheda" },
+    h("div", { class: "visore-barra" },
+      h("button", { class: "bottone chiaro piccolo", onclick: chiudiVisore }, "✕ Chiudi"),
+      h("button", {
+        class: "bottone piccolo",
+        onclick: () => {
+          stato.fotoRiferimento = { ...f, dataScheda: dataScheda.value || f.dataScheda };
+          stato.schedaInModifica = "nuova";
+          stato.baseScheda = null;
+          chiudiVisore();
+          disegna();
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        },
+      }, "Trascrivi in una scheda"),
+      h("button", {
+        class: "bottone pericolo piccolo",
+        onclick: async () => {
+          if (!confirm("Eliminare questa foto?")) return;
+          try {
+            const batch = writeBatch(db);
+            batch.delete(doc(db, "clienti", c.id, "foto", f.id));
+            batch.update(doc(db, "clienti", c.id), { numFoto: increment(-1) });
+            await batch.commit();
+            chiudiVisore();
+            avvisa("Foto eliminata.");
+          } catch (e) {
+            avvisa(erroreLeggibile(e), "errore");
+          }
+        },
+      }, "Elimina"),
+    ),
+    h("form", {
+      class: "visore-dati",
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        try {
+          await updateDoc(doc(db, "clienti", c.id, "foto", f.id), { dataScheda: dataScheda.value, nota: nota.value.trim() });
+          avvisa("Salvato.");
+        } catch (e) {
+          avvisa(erroreLeggibile(e), "errore");
+        }
+      },
+    }, dataScheda, nota, h("button", { class: "bottone piccolo", type: "submit" }, "Salva")),
+    area,
+    h("p", { class: "visore-aiuto" }, "Tocca la foto per ingrandirla o rimpicciolirla."),
+  );
+  document.body.append(elemento);
+  document.body.classList.add("visore-aperto");
+  visore = { elemento, fotoId };
+}
+
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") chiudiVisore(); });
 
 // ------------------------------------------------------------------ backup
 
@@ -644,9 +796,9 @@ function sezioneBackup() {
     bottone.disabled = true;
     bottone.textContent = "Preparazione…";
     try {
-      const { clienti, schede } = await creaBackup(db, nomeSalone);
+      const { clienti, schede, foto } = await creaBackup(db, nomeSalone);
       await setDoc(doc(db, "config", "backup"), { ultimo: serverTimestamp() });
-      avvisa(`Backup scaricato: ${clienti} clienti e ${schede} schede.`);
+      avvisa(`Backup scaricato: ${clienti} clienti, ${schede} schede e ${foto} foto.`);
     } catch (e) {
       avvisa(erroreLeggibile(e), "errore");
     } finally {
@@ -663,12 +815,13 @@ function sezioneBackup() {
     try {
       const dati = await leggiBackup(scelto);
       const conferma = `Ripristinare il backup del ${new Date(dati.creatoIl).toLocaleString("it-IT")}?\n\n`
-        + `Contiene ${dati.clienti.length} clienti e ${dati.clienti.reduce((n, c) => n + (c.schede?.length || 0), 0)} schede.\n\n`
+        + `Contiene ${dati.clienti.length} clienti, ${dati.clienti.reduce((n, c) => n + (c.schede?.length || 0), 0)} schede `
+        + `e ${dati.clienti.reduce((n, c) => n + (c.foto?.length || 0), 0)} foto.\n\n`
         + "Le clienti e le schede del backup vengono rimesse com'erano. Quelle aggiunte dopo il backup restano.";
       if (!confirm(conferma)) return;
       avvisa("Ripristino in corso…");
-      const { clienti, schede } = await ripristinaBackup(db, dati);
-      avvisa(`Ripristino completato: ${clienti} clienti e ${schede} schede.`);
+      const { clienti, schede, foto } = await ripristinaBackup(db, dati);
+      avvisa(`Ripristino completato: ${clienti} clienti, ${schede} schede e ${foto} foto.`);
     } catch (e) {
       avvisa(e.message?.startsWith("File") ? e.message : erroreLeggibile(e), "errore");
     }
@@ -683,7 +836,7 @@ giorni >= GIORNI_PROMEMORIA_BACKUP && h("span", { class: "rosso" }, " – da rif
         : h("span", { class: "rosso" }, "Nessun backup scaricato finora."),
     ),
     h("p", { class: "tenue" },
-      "Scarica una copia completa di clienti, schede e parrucchiere in un file. Fallo almeno una volta a settimana ",
+      "Scarica una copia completa di clienti, schede, foto e parrucchiere in un file. Fallo almeno una volta a settimana ",
       "e conserva il file in un posto sicuro: una chiavetta o una cartella protetta da password. ",
       h("strong", {}, "Non mandarlo via WhatsApp o email"), ": contiene dati personali delle clienti."),
     h("div", { class: "azioni" },
@@ -780,6 +933,8 @@ function sezionePassword() {
 // ------------------------------------------------------------------ avvio
 
 window.addEventListener("hashchange", () => {
+  chiudiVisore();
+  stato.fotoRiferimento = null;
   stato.schedaInModifica = null;
   stato.baseScheda = null;
   window.scrollTo(0, 0);
@@ -795,6 +950,7 @@ if (!configurato) {
       ultimaAttivita = Date.now();
       await avvia(utente);
     } else {
+      chiudiVisore();
       chiudiAscolti();
       Object.assign(stato, { utente: null, nick: null, clienti: [], parrucchiere: [], backup: undefined, caricato: false, schede: [] });
       schermataLogin();
