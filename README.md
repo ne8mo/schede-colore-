@@ -105,7 +105,8 @@ Alla fine compare un indirizzo tipo **`https://schede-colore-futuresun.web.app`*
 
 ## Uso di tutti i giorni
 
-- **Clienti**: cerca per nome, cognome o telefono, oppure filtra per parrucchiera.
+- **Clienti**: in ordine alfabetico, con le lettere A, B, C… a dividere l'elenco. Scegli tu se ordinare per
+  **cognome** o per **nome**: l'app se lo ricorda. Puoi cercare per nome, cognome o telefono, oppure filtrare per parrucchiera.
 - **+ Nuova cliente**: nome, cognome, telefono, parrucchiera che la segue, note fisse (allergie, cute sensibile…).
 - Nella scheda della cliente:
   - **+ Nuova scheda** registra data, parrucchiera, servizio, formula, ossigeno, posa e risultato;
@@ -133,6 +134,67 @@ Se c'è un'altra amministratrice, basta che crei un nuovo accesso. Altrimenti, d
 3. Entra nell'app con `nuovonick` e la nuova password, poi blocca il vecchio accesso.
 
 Conviene avere **sempre almeno due amministratori**.
+
+---
+
+## Backup dei dati
+
+Ci sono due livelli di backup. Ti consiglio di usarli **tutti e due**.
+
+### 1. Backup su file, dall'app (gratis)
+
+*Impostazioni → Backup dei dati → **Scarica backup adesso*** scarica un file
+`schede-colore-backup-AAAA-MM-GG.json` con tutte le clienti, le schede e le parrucchiere.
+
+- Fallo **almeno una volta a settimana**. Se passano più di 7 giorni, l'app lo ricorda all'amministratore
+  in cima all'elenco clienti.
+- Conserva il file in un posto sicuro: una chiavetta USB tenuta in salone, oppure una cartella protetta da
+  password. **Non mandarlo via WhatsApp o email**: contiene dati personali delle clienti.
+- **Ripristina da un file…** rimette clienti e schede com'erano nel backup. Quelle aggiunte dopo non vengono toccate.
+
+### 2. Backup automatici di Firebase (consigliato, costa pochi centesimi al mese)
+
+Firebase può fare da solo una copia ogni giorno, senza che nessuno se ne debba ricordare.
+Serve il piano **Blaze** (a consumo). Per un salone il costo è praticamente zero, di solito meno di 1 € al mese.
+
+1. Console Firebase → in basso a sinistra **Upgrade** → piano **Blaze** → collega una carta.
+2. Imposta subito un **avviso di budget**, per esempio 5 €: così ricevi un'email se la spesa supera la cifra
+   (Google Cloud → Fatturazione → Budget e avvisi).
+3. Apri <https://console.cloud.google.com>, scegli il tuo progetto in alto e clicca l'icona **Cloud Shell** `>_`
+   in alto a destra. Si apre un terminale nel browser, senza installare niente.
+4. Incolla questi comandi, mettendo il tuo ID progetto al posto di `ID-PROGETTO`:
+
+   ```
+   gcloud config set project ID-PROGETTO
+
+   # una copia ogni giorno, tenuta 7 giorni
+   gcloud firestore backups schedules create --database='(default)' --recurrence=daily --retention=7d
+
+   # una copia ogni domenica, tenuta 14 settimane
+   gcloud firestore backups schedules create --database='(default)' --recurrence=weekly --day-of-week=SUN --retention=14w
+   ```
+
+5. Per controllare che siano attivi:
+
+   ```
+   gcloud firestore backups schedules list --database='(default)'
+   ```
+
+In più puoi attivare il **ripristino a un momento preciso** (ultimi 7 giorni, utile se qualcuno cancella per errore):
+
+```
+gcloud firestore databases update --database='(default)' --enable-pitr
+```
+
+E una **protezione contro la cancellazione dell'intero database** (per esempio per un clic sbagliato nella console):
+
+```
+gcloud firestore databases update --database='(default)' --delete-protection
+```
+
+**Per ripristinare un backup automatico** servono alcuni comandi tecnici (il backup viene ripristinato in un
+database nuovo e poi va ricollegato all'app). Se ti capita, chiedi aiuto: i dati sono al sicuro nel backup
+finché non scade.
 
 ---
 

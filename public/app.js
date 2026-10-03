@@ -9,12 +9,14 @@ import {
   deleteDoc, onSnapshot, query, orderBy, writeBatch, serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js";
 import { firebaseConfig, nomeSalone, minutiInattivita } from "./firebase-config.js";
+import { creaBackup, leggiBackup, ripristinaBackup } from "./backup.js";
 
 // Il nickname diventa un indirizzo email interno: Firebase richiede un'email, ma nessuna email viene mai inviata.
 const DOMINIO_NICK = "staff.schede-colore.app";
 const SERVIZI = ["Colore", "Ritocco radici", "Mèches", "Colpi di sole", "Balayage", "Tonalizzante / Gloss",
   "Decolorazione", "Trattamento", "Permanente", "Lisciante"];
 const OSSIGENI = ["5 vol", "10 vol", "20 vol", "30 vol", "40 vol"];
+const GIORNI_PROMEMORIA_BACKUP = 7;
 
 const usaEmulatori = ["localhost", "127.0.0.1"].includes(location.hostname)
   && new URLSearchParams(location.search).has("emulatori");
@@ -34,6 +36,7 @@ const stato = {
   clienti: [],
   parrucchiere: [],
   staff: [],
+  backup: undefined,  // { ultimo, da } dell'ultimo backup scaricato (null = mai fatto)
   caricato: false,
   ascolti: [],        // listener da chiudere all'uscita
   ascoltoSchede: null,
@@ -80,8 +83,24 @@ function dataBella(iso) {
   return new Date(a, m - 1, g).toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// ordine alfabetico italiano: maiuscole/minuscole e accenti non contano
+const confronta = new Intl.Collator("it", { sensitivity: "base", numeric: true }).compare;
+
 function nomeCompleto(c) {
   return [c.nome, c.cognome].filter(Boolean).join(" ");
+}
+
+function chiaveOrdine(c, ordine) {
+  return ordine === "cognome" && c.cognome ? `${c.cognome} ${c.nome}` : `${c.nome} ${c.cognome || ""}`;
+}
+
+function nomeInElenco(c, ordine) {
+  return ordine === "cognome" && c.cognome ? `${c.cognome} ${c.nome}` : nomeCompleto(c);
+}
+
+function primaLettera(testo) {
+  const l = (testo || "").trim().charAt(0).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+  return /[A-Z]/.test(l) ? l : "#";
 }
 
 function iniziali(c) {
@@ -262,19 +281,23 @@ async function avvia(utente) {
     if (++pronti >= 2) stato.caricato = true;
     if (!moduloAperto()) disegna();
   };
-  stato.ascolti.push(onSnapshot(query(collection(db, "clienti"), orderBy("ricerca")), (snap) => {
+  stato.ascolti.push(onSnapshot(collection(db, "clienti"), (snap) => {
     stato.clienti = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     quandoPronto();
   }, (e) => avvisa(erroreLeggibile(e), "errore")));
-  stato.ascolti.push(onSnapshot(query(collection(db, "parrucchiere"), orderBy("nome")), (snap) => {
-    stato.parrucchiere = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  stato.ascolti.push(onSnapshot(collection(db, "parrucchiere"), (snap) => {
+    stato.parrucchiere = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => confronta(a.nome, b.nome));
     quandoPronto();
   }, (e) => avvisa(erroreLeggibile(e), "errore")));
   if (stato.profilo.ruolo === "admin") {
     stato.ascolti.push(onSnapshot(collection(db, "staff"), (snap) => {
       stato.staff = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        .sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
-      if (rotta().pagina === "impostazioni") disegna();
+        .sort((a, b) => confronta(a.nome || a.nickname, b.nome || b.nickname));
+      if (rotta().pagina === "impostazioni" && !moduloAperto()) disegna();
+    }));
+    stato.ascolti.push(onSnapshot(doc(db, "config", "backup"), (snap) => {
+      stato.backup = snap.exists() ? snap.data() : null;
+      if (!moduloAperto()) disegna();
     }));
   }
 }
@@ -318,6 +341,7 @@ function disegna() {
   const attivo = document.activeElement;
   const ricercaAttiva = attivo?.id === "cerca" ? { pos: attivo.selectionStart } : null;
   radice.replaceChildren(barra(), h("main", { class: "contenitore" }, contenuto));
+  if (pagina === "impostazioni" && id) document.getElementById(id)?.scrollIntoView();
   if (ricercaAttiva) {
     const cerca = document.getElementById("cerca");
     cerca.focus();
@@ -327,21 +351,47 @@ function disegna() {
 
 // ------------------------------------------------------------------ elenco clienti
 
-const filtri = { testo: "", parrucchiera: "" };
+function ordineSalvato() {
+  try { return localStorage.getItem("ordine-clienti") === "nome" ? "nome" : "cognome"; } catch { return "cognome"; }
+}
+
+const filtri = { testo: "", parrucchiera: "", ordine: ordineSalvato() };
 
 function paginaClienti() {
   const testo = filtri.testo.trim().toLowerCase();
   const cifre = testo.replace(/\D/g, "");
   const elenco = stato.clienti.filter((c) =>
     (!filtri.parrucchiera || c.parrucchiera === filtri.parrucchiera)
-    && (!testo || c.ricerca?.includes(testo) || (cifre.length >= 3 && (c.telefono || "").replace(/\D/g, "").includes(cifre))));
+    && (!testo || c.ricerca?.includes(testo) || (cifre.length >= 3 && (c.telefono || "").replace(/\D/g, "").includes(cifre))))
+    .sort((a, b) => confronta(chiaveOrdine(a, filtri.ordine), chiaveOrdine(b, filtri.ordine)));
+
+  // righe dell'elenco con la lettera iniziale come separatore (A, B, C…)
+  const righe = [];
+  let letteraPrecedente = null;
+  for (const c of elenco) {
+    const lettera = primaLettera(chiaveOrdine(c, filtri.ordine));
+    if (lettera !== letteraPrecedente) {
+      righe.push(h("li", { class: "lettera", "aria-hidden": "true" }, lettera));
+      letteraPrecedente = lettera;
+    }
+    righe.push(h("li", {},
+      h("a", { href: `#/cliente/${c.id}` },
+        h("span", { class: "avatar" }, iniziali(c)),
+        h("span", { class: "dati" },
+          h("strong", {}, nomeInElenco(c, filtri.ordine)),
+          h("small", {}, [c.telefono, c.ultimaScheda && `ultima scheda ${dataBella(c.ultimaScheda)}`].filter(Boolean).join(" · ")),
+        ),
+        c.parrucchiera && h("span", { class: "chip" }, c.parrucchiera),
+      )));
+  }
 
   const parrucchiereUsate = [...new Set([
     ...stato.parrucchiere.map((p) => p.nome),
     ...stato.clienti.map((c) => c.parrucchiera).filter(Boolean),
-  ])].sort();
+  ])].sort(confronta);
 
   return h("div", {},
+    promemoriaBackup(),
     h("div", { class: "testata-pagina" },
       h("h1", {}, "Clienti"),
       h("a", { class: "bottone", href: "#/cliente/nuova" }, "+ Nuova cliente"),
@@ -360,18 +410,23 @@ function paginaClienti() {
         parrucchiereUsate.map((n) => h("option", { value: n, selected: filtri.parrucchiera === n }, n)),
       ),
     ),
-    h("p", { class: "tenue conteggio" },
-      elenco.length === stato.clienti.length ? `${elenco.length} clienti` : `${elenco.length} di ${stato.clienti.length} clienti`),
+    h("div", { class: "riga-conteggio" },
+      h("p", { class: "tenue conteggio" },
+        elenco.length === stato.clienti.length ? `${elenco.length} clienti` : `${elenco.length} di ${stato.clienti.length} clienti`),
+      h("div", { class: "interruttore", role: "group", "aria-label": "Ordine alfabetico" },
+        h("span", { class: "tenue" }, "A→Z per"),
+        ["cognome", "nome"].map((o) => h("button", {
+          type: "button", class: filtri.ordine === o ? "scelto" : "", "aria-pressed": String(filtri.ordine === o),
+          onclick: () => {
+            filtri.ordine = o;
+            try { localStorage.setItem("ordine-clienti", o); } catch { /* non importa */ }
+            disegna();
+          },
+        }, o)),
+      ),
+    ),
     elenco.length
-      ? h("ul", { class: "lista" }, elenco.map((c) => h("li", {},
-        h("a", { href: `#/cliente/${c.id}` },
-          h("span", { class: "avatar" }, iniziali(c)),
-          h("span", { class: "dati" },
-            h("strong", {}, nomeCompleto(c)),
-            h("small", {}, [c.telefono, c.ultimaScheda && `ultima scheda ${dataBella(c.ultimaScheda)}`].filter(Boolean).join(" · ")),
-          ),
-          c.parrucchiera && h("span", { class: "chip" }, c.parrucchiera),
-        ))))
+      ? h("ul", { class: "lista" }, righe)
       : h("div", { class: "vuoto" },
         stato.clienti.length ? "Nessuna cliente trovata." : "Ancora nessuna cliente. Inizia con «+ Nuova cliente».",
       ),
@@ -383,6 +438,7 @@ function paginaClienti() {
 function selectParrucchiera(valore, extra = {}) {
   const nomi = stato.parrucchiere.filter((p) => p.attiva !== false).map((p) => p.nome);
   if (valore && !nomi.includes(valore)) nomi.push(valore);
+  nomi.sort(confronta);
   return h("select", extra,
     h("option", { value: "" }, "— Nessuna —"),
     nomi.map((n) => h("option", { value: n, selected: n === valore }, n)),
@@ -620,6 +676,81 @@ async function eliminaCliente(c) {
   }
 }
 
+// ------------------------------------------------------------------ backup
+
+function giorniDallUltimoBackup() {
+  const ultimo = stato.backup?.ultimo?.toDate?.();
+  return ultimo ? Math.floor((Date.now() - ultimo.getTime()) / 86400000) : null;
+}
+
+function promemoriaBackup() {
+  if (stato.profilo?.ruolo !== "admin" || !stato.clienti.length || stato.backup === undefined) return null;
+  const giorni = giorniDallUltimoBackup();
+  if (giorni !== null && giorni < GIORNI_PROMEMORIA_BACKUP) return null;
+  return h("div", { class: "promemoria" },
+    h("span", {}, giorni === null ? "Non hai ancora scaricato nessun backup dei dati." : `L'ultimo backup è di ${giorni} giorni fa.`),
+    h("a", { class: "bottone piccolo", href: "#/impostazioni/backup" }, "Fai il backup"),
+  );
+}
+
+function sezioneBackup() {
+  const giorni = giorniDallUltimoBackup();
+  const ultimo = stato.backup?.ultimo?.toDate?.();
+  const bottone = h("button", { class: "bottone", type: "button" }, "Scarica backup adesso");
+  bottone.addEventListener("click", async () => {
+    bottone.disabled = true;
+    bottone.textContent = "Preparazione…";
+    try {
+      const { clienti, schede } = await creaBackup(db, nomeSalone);
+      await setDoc(doc(db, "config", "backup"), { ultimo: serverTimestamp(), da: stato.profilo.nome || stato.profilo.nickname });
+      avvisa(`Backup scaricato: ${clienti} clienti e ${schede} schede.`);
+    } catch (e) {
+      avvisa(erroreLeggibile(e), "errore");
+    } finally {
+      bottone.disabled = false;
+      bottone.textContent = "Scarica backup adesso";
+    }
+  });
+
+  const file = h("input", { type: "file", accept: ".json,application/json", class: "nascosto", id: "file-backup" });
+  file.addEventListener("change", async () => {
+    const scelto = file.files[0];
+    file.value = "";
+    if (!scelto) return;
+    try {
+      const dati = await leggiBackup(scelto);
+      const conferma = `Ripristinare il backup del ${new Date(dati.creatoIl).toLocaleString("it-IT")}?\n\n`
+        + `Contiene ${dati.clienti.length} clienti e ${dati.clienti.reduce((n, c) => n + (c.schede?.length || 0), 0)} schede.\n\n`
+        + "Le clienti e le schede del backup vengono rimesse com'erano. Quelle aggiunte dopo il backup restano.";
+      if (!confirm(conferma)) return;
+      avvisa("Ripristino in corso…");
+      const { clienti, schede } = await ripristinaBackup(db, dati);
+      avvisa(`Ripristino completato: ${clienti} clienti e ${schede} schede.`);
+    } catch (e) {
+      avvisa(e.message?.startsWith("File") ? e.message : erroreLeggibile(e), "errore");
+    }
+  });
+
+  return h("section", { class: "pannello", id: "backup" },
+    h("h2", {}, "Backup dei dati"),
+    h("p", {},
+      ultimo
+        ? ["Ultimo backup: ", h("strong", {}, ultimo.toLocaleString("it-IT", { dateStyle: "long", timeStyle: "short" })),
+          stato.backup.da && ` (${stato.backup.da})`, giorni >= GIORNI_PROMEMORIA_BACKUP && h("span", { class: "rosso" }, " – da rifare")]
+        : h("span", { class: "rosso" }, "Nessun backup scaricato finora."),
+    ),
+    h("p", { class: "tenue" },
+      "Scarica una copia completa di clienti, schede e parrucchiere in un file. Fallo almeno una volta a settimana ",
+      "e conserva il file in un posto sicuro: una chiavetta o una cartella protetta da password. ",
+      h("strong", {}, "Non mandarlo via WhatsApp o email"), ": contiene dati personali delle clienti."),
+    h("div", { class: "azioni" },
+      bottone,
+      file,
+      h("label", { for: "file-backup", class: "bottone chiaro" }, "Ripristina da un file…"),
+    ),
+  );
+}
+
 // ------------------------------------------------------------------ impostazioni
 
 function paginaImpostazioni() {
@@ -627,6 +758,7 @@ function paginaImpostazioni() {
   return h("div", {},
     h("h1", {}, "Impostazioni"),
     sezioneParrucchiere(admin),
+    admin && sezioneBackup(),
     admin && sezioneAccessi(),
     sezionePassword(),
   );
@@ -788,7 +920,7 @@ if (!configurato) {
       await avvia(utente);
     } else {
       chiudiAscolti();
-      Object.assign(stato, { utente: null, profilo: null, clienti: [], parrucchiere: [], staff: [], caricato: false, schede: [] });
+      Object.assign(stato, { utente: null, profilo: null, clienti: [], parrucchiere: [], staff: [], backup: undefined, caricato: false, schede: [] });
       let primo = false;
       try { primo = !(await setupFatto()); } catch (e) { /* offline: mostra il login normale */ }
       schermataLogin(primo);

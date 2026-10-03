@@ -105,6 +105,22 @@ describe("chi deve poter lavorare", () => {
   });
 });
 
+describe("backup", () => {
+  beforeEach(async () => { await env.clearFirestore(); await preparaDati(); });
+
+  test("solo l'amministratore registra un backup, il personale lo legge", async () => {
+    await assertSucceeds(setDoc(doc(come("admin1"), "config/backup"), { ultimo: new Date(), da: "Titolare" }));
+    await assertSucceeds(getDoc(doc(come("sara"), "config/backup")));
+    await assertFails(setDoc(doc(come("sara"), "config/backup"), { ultimo: new Date(), da: "Sara" }));
+    await assertFails(getDoc(doc(come(null), "config/backup")));
+    await assertFails(getDoc(doc(come("intruso"), "config/backup")));
+  });
+
+  test("nel documento backup non si possono mettere altri dati", async () => {
+    await assertFails(setDoc(doc(come("admin1"), "config/backup"), { ultimo: new Date(), segreto: "x" }));
+  });
+});
+
 describe("primo avvio", () => {
   beforeEach(() => env.clearFirestore());
 

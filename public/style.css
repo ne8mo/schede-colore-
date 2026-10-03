@@ -198,6 +198,26 @@ textarea { resize: vertical; min-height: 80px; }
 .scheda footer { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--linea); }
 .modulo-scheda { border: 2px solid var(--cipria-scuro); }
 
+/* elenco alfabetico */
+.lista li.lettera {
+    background: var(--sfondo);
+    color: var(--mocha);
+    font-family: "Cormorant Garamond", Georgia, serif;
+    font-size: 1.25rem;
+    padding: 4px 16px;
+}
+.riga-conteggio { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0 8px; }
+.riga-conteggio .conteggio { margin: 0; }
+.interruttore { display: flex; align-items: center; gap: 4px; font-size: .85rem; }
+.interruttore button { background: #fff; border: 1px solid var(--cipria-scuro); border-radius: 999px; padding: 4px 12px; font: inherit; font-weight: 600; color: var(--espresso); cursor: pointer; }
+.interruttore button.scelto { background: var(--espresso); border-color: var(--espresso); color: #fff; }
+
+/* backup */
+.promemoria { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; background: #fbf1e4; border: 1px solid #f0dcc0; border-radius: 12px; padding: 10px 14px; margin-bottom: 16px; }
+.rosso { color: var(--rosso); font-weight: 600; }
+.nascosto { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+#backup { scroll-margin-top: 80px; }
+
 .zona-pericolo { margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--linea); }
 
 /* impostazioni */

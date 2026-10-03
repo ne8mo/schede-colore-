@@ -37,6 +37,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // Data dell'ultimo backup scaricato (per il promemoria).
+    match /config/backup {
+      allow read: if isStaff();
+      allow write: if isAdmin() && request.resource.data.keys().hasOnly(['ultimo', 'da']);
+    }
+
     // Accessi. Il primo amministratore si crea da solo, una volta sola.
     match /staff/{uid} {
       allow read: if isStaff() || (loggato() && request.auth.uid == uid);
